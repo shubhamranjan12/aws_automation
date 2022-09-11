@@ -1,0 +1,75 @@
+---
+ # Ansible playbook to setup an apache webserver on an aws instance.
+ # This playbook is tested for AMI images only
+ - name: Create EC2 instances
+   hosts: localhost
+   vars:
+     vpc_id: vpc-d74dccaa
+     region: us-east-1
+     # update your key name here
+     key_name: viginia_keypair.pem
+     instance_type: t2.micro
+     image: ami-05fa00d4c63e32376
+     spot_price: 0.0035
+   tasks:
+     - name: Get AWS instances
+       ec2_instance_info:
+         region: "{{ region }}"
+         filters:
+           instance-state-name: ["running"]
+       register: ec2_info
+
+     - name: Print running AWS instances
+       debug:
+         msg: "{{ item.instance_id }}"
+       with_items: "{{ ec2_info.instances }}"
+
+     - name: Terminate already running instances
+       ec2:
+         region: "{{ region }}"
+         state: absent
+         instance_ids: "{{ item.instance_id }}"
+       with_items: "{{ ec2_info.instances }}"
+
+     - name: Create security group for ssh and port 80
+       ec2_group:
+         name: Ansible-sg Allow port 80 and port 22
+         description: Allows port 80 and port 22
+         vpc_id: "{{ vpc_id }}"
+         region: "{{ region }}"
+         rules:
+           - proto: tcp
+             ports:
+             - 80
+             cidr_ip: 0.0.0.0/0
+             rule_desc: allow all on port 80
+           - proto: tcp
+             ports:
+             - 22
+             cidr_ip: 0.0.0.0/0
+             rule_desc: allow ssh from any ip
+       register: sg
+
+     - name: Create Ec2 instances
+       ec2:
+         region: "{{ region }}"
+         key_name: "{{ key_name }}"
+         instance_type: "{{ instance_type }}"
+         image: "{{ image }}"
+         wait: yes
+         count: 1
+         spot_price: "{{ spot_price }}"
+         wait_timeout: 300
+         group_id: "{{ sg.group_id }}"
+         user_data: "{{ lookup('file', 'user_data.sh') }}"
+         instance_initiated_shutdown_behavior: terminate
+       register: result
+
+     - name: Check for server response
+       uri:
+         url: "http://{{ item.public_ip }}"
+       register: _result
+       until: _result.status == 200
+       retries: 5
+       delay: 12
+       with_items: "{{ result.instances }}"
