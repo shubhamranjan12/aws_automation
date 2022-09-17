@@ -1,0 +1,21 @@
+---
+# This playbook is used for clean up tasks
+
+- name: Get information of running EC2 instances
+  ec2_instance_info:
+    filters:
+      instance-state-name: ["running"]
+  register: ec2_info
+
+- name: Terminate EC2 instances
+  ec2:
+    state: absent
+    instance_ids: "{{ item.instance_id }}"
+    region: "{{ region }}"
+  with_items: "{{ ec2_info.instances }}"
+
+- name: Delete CLB
+  elb_classic_lb:
+    name: "{{ clb_name }}"
+    region: "{{ region }}"
+    state: absent

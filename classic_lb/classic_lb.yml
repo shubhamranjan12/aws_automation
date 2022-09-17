@@ -1,0 +1,22 @@
+---
+# This playbook will boot up instances with a custom page for
+# apache webserver, and will register itself with clb.
+# For testing purposes we will boot 3 vm's and test whether clb works.
+
+ - hosts: localhost
+   gather_facts: False
+   vars:
+     clb_name: "my-clb"
+     region: "us-east-1"
+     vpc_id: vpc-d74dccaa
+     key_name: viginia_keypair.pem
+     instance_type: t2.micro
+     image: ami-05fa00d4c63e32376
+     spot_price: 0.0035
+     count: 3
+   tasks:
+     - import_tasks: classic_lb_create.yml
+       when: create | default(False) | bool 
+
+     - import_tasks: classic_lb_clean.yml
+       when: delete | default(False) | bool 

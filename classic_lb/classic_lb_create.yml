@@ -1,0 +1,66 @@
+---
+# This playbook will boot up instances with a custom page for
+# apache webserver, and will register itself with clb.
+# For testing purposes we will boot 3 vm's and test whether clb works.
+
+- name: Create security group for port 80 for the CLB
+  ec2_group:
+    name: Ansible-clb-sg Allow port 80
+    description: Allows port 80
+    vpc_id: "{{ vpc_id }}"
+    region: "{{ region }}"
+    rules:
+      - proto: tcp
+        ports:
+        - 80
+        cidr_ip: 0.0.0.0/0
+        rule_desc: allow all on port 80
+  register: sg
+
+- name: Create Ec2 instances
+  ec2:
+    region: "{{ region }}"
+    key_name: "{{ key_name }}"
+    instance_type: "{{ instance_type }}"
+    image: "{{ image }}"
+    wait: yes
+    count: "{{ count }}"
+    spot_price: "{{ spot_price }}"
+    wait_timeout: 300
+    group_id: "{{ sg.group_id }}"
+    user_data: "{{ lookup('file', 'user_data.sh') }}"
+    instance_initiated_shutdown_behavior: terminate
+  register: result
+
+- name: Create a clb
+  elb_classic_lb:
+    name: "{{ clb_name }}"
+    region: "{{ region }}"
+    state: present
+    zones:
+      - "{{ item.placement }}"
+    listeners:
+      - protocol: http
+        load_balancer_port: 80
+        instance_port: 80
+    wait: yes
+    security_group_ids: "{{ sg.group_id }}"
+    instance_ids: "{{ item.id }}"
+    health_check:
+      ping_protocol: http
+      ping_port: 80
+      ping_path: "/index.html"
+      response_timeout: 5
+      interval: 10
+      unhealthy_threshold: 2
+      healthy_threshold: 5
+  with_items: "{{ result.instances }}"
+  register: clb_result
+
+- name: Check whether the CLB setup works
+  uri:
+    url: "http://{{ clb_result.results[0].elb.dns_name }}/"
+  register: _result
+  until: _result.status == 200
+  retries: 60
+  delay: 5
